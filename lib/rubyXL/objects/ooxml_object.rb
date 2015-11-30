@@ -111,13 +111,13 @@ module RubyXL
       end
 
       if node.is_a?(Nokogiri::XML::Document) then
-        @namespaces = node.namespaces
         node = node.root
 #        ignorable_attr = node.attributes['Ignorable']
 #        @ignorables << ignorable_attr.value if ignorable_attr
       end
 
       obj = self.new
+      obj.local_namespaces = node.namespace_definitions
 
       known_attributes = obtain_class_variable(:@@ooxml_attributes)
 
@@ -206,6 +206,8 @@ module RubyXL
 
 
   module OOXMLObjectInstanceMethods
+    attr_accessor :local_namespaces
+
     def self.included(klass)
       klass.extend RubyXL::OOXMLObjectClassMethods
     end
@@ -236,6 +238,11 @@ module RubyXL
       }
     end
     private :init_child_nodes
+
+    def preserve_whitespace
+      self.xml_space = (value.is_a?(String) && ((value =~ /\A\s/) || (value =~ /\s\Z/) || value.include?("\n"))) ? 'preserve' : nil
+    end
+    private :preserve_whitespace
 
     def ==(other)
       other.is_a?(self.class) &&
@@ -301,6 +308,13 @@ module RubyXL
       end
       # and finally set the node's namespace based on the element_name's prefix (if any)
       adjust_namespace(elem, element_name)
+
+      if @local_namespaces.nil? || @local_namespaces.empty? then # If no local namespaces provided in the original document,
+        # use the defualts
+        obtain_class_variable(:@@ooxml_namespaces).each_pair { |k, v| elem.add_namespace_definition(v, k) }
+      else # otherwise preserve the original ones
+        @local_namespaces.each { |ns| elem.add_namespace_definition(ns.prefix, ns.href) }
+      end
 
       child_nodes = obtain_class_variable(:@@ooxml_child_nodes)
       child_nodes.each do |child_node_name, child_node_params|
@@ -459,16 +473,16 @@ module RubyXL
     # === Parameters
     # * +namespace_hash+ - Hash of namespaces in the form of <tt>"url" => "prefix"</tt>
     # ==== Examples
-    #   set_namespaces('http://schemas.openxmlformats.org/spreadsheetml/2006/main' => '',
+    #   set_namespaces('http://schemas.openxmlformats.org/spreadsheetml/2006/main' => nil,
     #                  'http://schemas.openxmlformats.org/officeDocument/2006/relationships' => 'r')
     def self.set_namespaces(namespace_hash)
       self.class_variable_set(:@@ooxml_namespaces, namespace_hash)
     end
 
-    # Generates the top-level OOXML object by parsing its XML file from the temporary
-    # directory containing the unzipped contents of <tt>.xslx</tt>
+    # Generates the top-level OOXML object by parsing its XML file from the contents of the <tt>.xslx</tt> container.
     # === Parameters
-    # * +dirpath+ - path to the directory with the unzipped <tt>.xslx</tt> contents.
+    # * +zip_file+ - <tt>.xslx</tt> file as <tt>Zip::File</tt> object
+    # * +file_path+ - path to the subject file inside the <tt>.xslx</tt> zip archive
     def self.parse_file(zip_file, file_path)
       entry = zip_file.find_entry(RubyXL::from_root(file_path))
       # Accomodate for Nokogiri Java implementation which is incapable of reading from a stream
@@ -480,9 +494,10 @@ module RubyXL
     # * +zipfile+ - ::Zip::File to which the resulting XNMML should be added.
     def add_to_zip(zip_stream)
       xml_string = write_xml
-      return if xml_string.empty?
+      return false if xml_string.empty?
       zip_stream.put_next_entry(RubyXL::from_root(self.xlsx_path))
       zip_stream.write(xml_string)
+      true
     end
 
     def file_index

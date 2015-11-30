@@ -16,9 +16,10 @@ module RubyXL
     end
 
     def add_to_zip(zip_stream)
-      return if @data.nil?
+      return false if @data.nil?
       zip_stream.put_next_entry(RubyXL::from_root(self.xlsx_path))
       zip_stream.write(@data)
+      true
     end
   end
 
@@ -141,11 +142,6 @@ module RubyXL
     REL_TYPE     = 'http://schemas.microsoft.com/office/2006/relationships/vbaProject'
   end
 
-  class ExternalLinksFile < GenericStorageObject
-    CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml'
-    REL_TYPE     = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink'
-  end
-
   class CustomXMLFile < GenericStorageObject
     REL_TYPE     = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml'
   end
@@ -166,4 +162,3 @@ module RubyXL
   end
 
 end
-
